@@ -16,8 +16,8 @@ def k(ft):
     return f"{ft / 1000:.1f}"
 
 
-def render_sled(path, name, weapon_label, r, inp, fuze="N/T", xw_units="ft", alt_ref="AGL", dpi=200):
-    """r = solve_sled() result, inp = the SledInput used. xw_units: 'ft' (ft/kt, DAPS) or 'mils' (mils/kt, CWDS)."""
+def render_sled(path, name, weapon_label, r, inp, fuze="N/T", xw_units="mils", alt_ref="AGL", dpi=200):
+    """r = solve_sled() result, inp = the SledInput used. xw_units: "mils" (mils/kt, 76 vFS / 23FG, default) or "ft" (ft/kt, DAPS)."""
     fig = plt.figure(figsize=(W_PX / dpi, H_PX / dpi), dpi=dpi)
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_xlim(0, W_PX); ax.set_ylim(H_PX, 0); ax.axis("off")
