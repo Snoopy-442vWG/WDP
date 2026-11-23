@@ -159,6 +159,46 @@ class Aircraft:
         a0 = self.aoa_bias
         return a0 + self.aoa_scale * (a1g - a0) * nz * self.gw_lb / self.ref_gw_lb
 
+# ---------------------------------------------------------------- recovery / frag (provisional: DAPS tables)
+import json, os
+# Altitude lost in the CLM recovery (ft) vs release KIAS (rows) and dive (cols), from DAPS ALT_LOST_TABLE.
+ALT_LOST_KIAS = [275, 300, 325, 350, 375, 400, 420]
+ALT_LOST_DIVE = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
+ALT_LOST_FT = [
+ [0, 43, 123, 227, 355, 507, 684, 885, 1112, 1363, 1640, 1942, 2267],
+ [0, 49, 140, 259, 406, 582, 787, 1021, 1286, 1581, 1906, 2261, 2645],
+ [0, 55, 157, 291, 459, 659, 894, 1164, 1468, 1809, 2185, 2596, 3041],
+ [0, 62, 175, 325, 513, 740, 1006, 1312, 1658, 2045, 2472, 2940, 3447],
+ [0, 68, 193, 360, 569, 823, 1121, 1463, 1852, 2286, 2766, 3292, 3866],
+ [0, 75, 212, 397, 628, 907, 1237, 1618, 2050, 2535, 3073, 3666, 4314],
+ [0, 80, 227, 426, 676, 979, 1335, 1748, 2219, 2747, 3335, 3984, 4692]]
+
+def altitude_lost(kias, dive):
+    rows = [_interp(ALT_LOST_DIVE, r, dive) for r in ALT_LOST_FT]
+    return _interp(ALT_LOST_KIAS, rows, kias)
+
+_MRA = None
+def frag_mtof(code, qty, dive, kias):
+    """Minimum time of flight for frag clearance (DAPS MRA tables), interpolated in dive and KIAS."""
+    global _MRA
+    if _MRA is None:
+        with open(os.path.join(os.path.dirname(__file__), "daps_mra.json")) as fh:
+            _MRA = json.load(fh)
+    tab = [t for t in _MRA.get(code, []) if t["reason"] == "FRAG" and t["mtof"]]
+    if not tab: return None
+    qs = sorted({t["qty"] for t in tab}); q = min(qs, key=lambda x: (x < qty, abs(x - qty)))
+    tab = [t for t in tab if t["qty"] == q]
+    dives = sorted({t["dive"] for t in tab}); speeds = sorted({t["kias"] for t in tab})
+    def at(dv):
+        pts = sorted((t["kias"], t["mtof"]) for t in tab if t["dive"] == dv)
+        return _interp([p[0] for p in pts], [p[1] for p in pts], kias) if pts else None
+    vals = [(d, at(d)) for d in dives]; vals = [v for v in vals if v[1] is not None]
+    return _interp([v[0] for v in vals], [v[1] for v in vals], dive)
+
+def default_release_agl(abort_agl, dive):
+    """DAPS rule: release 10 ft per degree of dive above the abort altitude, rounded up to 100 ft."""
+    return math.ceil((abort_agl + 10 * dive) / 100) * 100
+
 # ---------------------------------------------------------------- safe escape
 # DSMS escape maneuver codes (JAFDTC EscapeManeuvers): CLB is the jet's name for
 # the 3-3 Climbing (CLM) SEM.
@@ -196,8 +236,22 @@ class SledInput:
     track_time: float = None   # default per 23FG/3-3 rule
     min_alt: float = 1000.0    # MALT, ft above target
     sem: str = None            # None = default by dive angle (see default_sem)
+    weapon_code: str = "MK82LD"  # key into the frag MTOF table
 
 def solve_sled(inp: SledInput, ac: Aircraft):
+    """Solve a sled. If inp.rel_agl is None, release = DAPS rule (abort + 10 ft/deg, rounded up to 100 ft MSL)."""
+    if inp.rel_agl is None:
+        import dataclasses
+        rel_agl = 3000.0
+        for _ in range(5):   # frag MRA depends a little on release TAS, so iterate to a fixed point
+            probe = _solve_sled(dataclasses.replace(inp, rel_agl=rel_agl), ac)
+            new = math.ceil((probe["abort_msl"] + 10 * inp.dive) / 100) * 100 - inp.tgt_elev
+            if abs(new - rel_agl) < 1: break
+            rel_agl = new
+        inp = dataclasses.replace(inp, rel_agl=rel_agl)
+    return _solve_sled(inp, ac)
+
+def _solve_sled(inp: SledInput, ac: Aircraft):
     temp_c = inp.temp_c if inp.temp_c is not None else 15.0 - 0.0019812 * inp.tgt_elev
     atm = Atmos.for_surface_temp(inp.tgt_elev, temp_c)
     sem = inp.sem or default_sem(inp.dive, inp.weapon.high_drag)
@@ -234,7 +288,9 @@ def solve_sled(inp: SledInput, ac: Aircraft):
     aoa_rel = ac.aoa_mils(inp.rel_kias, h_rel, nz)
     mils = (los - g) * MIL_PER_DEG + aoa_rel
     # track: straight wire, track_time before release, IAS linear trk->rel
-    tt = inp.track_time if inp.track_time is not None else 3.0
+    # 23FG: 3 s track for recovery < 4,500 ft (and all gun/rocket), 5 s for recovery >= 4,500 ft
+    hi_rec = inp.min_alt >= 4500
+    tt = inp.track_time if inp.track_time is not None else (5.0 if hi_rec else 3.0)
     steps = 100; s = 0.0; hh = h_rel
     for i in range(steps):  # integrate backwards up the wire
         f = 1 - (i + 0.5) / steps
@@ -250,7 +306,8 @@ def solve_sled(inp: SledInput, ac: Aircraft):
     # release-condition AoA (the sight setting set in the jet), not track AoA.
     ihp = iaa * MIL_PER_DEG + aoa_rel
     ipp = mils - ihp
-    k = 60 if g == 45 else (70 if g >= 60 else 50)
+    # 23FG: base = track + 50/60/70 ft per degree (70 for recovery >= 4,500 and all 60s, 60 for 45s)
+    k = 70 if (hi_rec or g >= 60) else (60 if g == 45 else 50)
     base_agl = trk_agl + k * g
     base_dist = base_agl / tan_g - aod
     # wind sensitivities
@@ -267,10 +324,30 @@ def solve_sled(inp: SledInput, ac: Aircraft):
     sr = math.hypot(inp.rel_agl, br)
     xw_ft = abs(rx["y"]) / 10
     xw = xw_ft / sr * 1000
+    # ---- abort / frag (DAPS method): abort = max(frag MRA, MALT + altitude lost in recovery)
+    alt_lost = altitude_lost(inp.rel_kias, g)
+    mtof = frag_mtof(inp.weapon_code, inp.qty, g, inp.rel_kias)
+    frag_mra = None
+    if mtof:
+        lo, hi = 0.0, 20000.0
+        for _ in range(30):
+            mid = (lo + hi) / 2
+            if drop(w, atm, inp.tgt_elev + mid, inp.tgt_elev, tas, g, dt=0.02)["tof"] < mtof: lo = mid
+            else: hi = mid
+        frag_mra = (lo + hi) / 2
+    floor = inp.min_alt + alt_lost
+    if frag_mra is not None and frag_mra >= floor:
+        abort_agl, abort_reason = frag_mra, "FRAG"
+    else:
+        abort_agl, abort_reason = floor, "MIN ALT"
+    abort_agl = math.ceil((abort_agl + inp.tgt_elev) / 100) * 100 - inp.tgt_elev   # DAPS rounds the MSL value
+    mtof_at_abort = drop(w, atm, inp.tgt_elev + abort_agl, inp.tgt_elev, tas, g, dt=0.02)["tof"]
+    rel_below_abort = inp.rel_agl < abort_agl
     e = inp.tgt_elev
-    msl = dict(base_msl=base_agl + e, trk_msl=trk_agl + e, rel_msl=inp.rel_agl + e,
+    msl = dict(abort_msl=abort_agl + e, base_msl=base_agl + e, trk_msl=trk_agl + e, rel_msl=inp.rel_agl + e,
                malt_msl=inp.min_alt + e)
-    return dict(**msl, sem=sem, sem_warning=sem_warning, temp_c=temp_c, rel_agl=inp.rel_agl,
+    return dict(**msl, abort_agl=abort_agl, abort_reason=abort_reason, alt_lost=alt_lost, mtof_table=mtof,
+                mtof=mtof_at_abort, frag_mra=frag_mra, rel_below_abort=rel_below_abort, sem=sem, sem_warning=sem_warning, temp_c=temp_c, rel_agl=inp.rel_agl,
                 tgt_elev=e, dtof=dtof_last, tof_first=r["tof"], interval_s=interval, mils=mils, br=br, aod=aod, trk=trk_agl, itp=itp, iaa=iaa,
                 ihp=ihp, ipp=ipp, xw_ft=xw_ft, slant=sr, aoa_trk=aoa_trk, base=base_agl, base_dist=base_dist, ht=ht, xw=xw,
                 aoa_rel=aoa_rel, tas_kt=tas / KT, da=atm.density_alt(inp.tgt_elev))

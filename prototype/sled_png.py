@@ -1,92 +1,89 @@
-"""Render a Z-sled card as a PNG, in the 76 vFS / DAPS battle book layout.
+"""Render a Z-sled card as a PNG in the DAPS card layout.
 
-Big altitude numbers are MSL (what the altimeter reads), in thousands of feet; the AGL value is shown small
-underneath. The header carries the target elevation and temperature the sled was computed for.
+Altitudes are MSL in thousands of feet (what the altimeter reads); the target elevation is printed under the sled.
 """
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 
 NM = 6076.12
+W_PX, H_PX = 620, 840          # card size in pixels at the default dpi
+SEM_LABEL = {"CLB": "CLM", "TLT": "TLT", "TRN": "TRN"}   # card shows the 3-3 names
 
 
 def k(ft):
     return f"{ft / 1000:.1f}"
 
 
-def render_sled(path, name, weapon_label, r, inp, fuze="N/T", dpi=200):
-    """r = solve_sled() result, inp = SledInput used to compute it."""
-    W, H = 4.0, 3.2                       # inches (card)
-    fig = plt.figure(figsize=(W, H), dpi=dpi)
+def render_sled(path, name, weapon_label, r, inp, fuze="NT", xw_units="ft", dpi=200):
+    """r = solve_sled() result, inp = the SledInput used. xw_units: 'ft' (ft/kt, DAPS) or 'mils' (mils/kt, CWDS)."""
+    fig = plt.figure(figsize=(W_PX / dpi, H_PX / dpi), dpi=dpi)
     ax = fig.add_axes([0, 0, 1, 1])
-    ax.set_xlim(0, 100); ax.set_ylim(0, 80); ax.axis("off")
-    lw = 0.8
-    box = dict(fill=False, lw=lw, ec="black")
+    ax.set_xlim(0, W_PX); ax.set_ylim(H_PX, 0); ax.axis("off")
+    LW = 1.0
 
-    # outer frame + title rows
-    ax.add_patch(Rectangle((1, 1), 98, 78, **box))
-    ax.plot([1, 99], [72, 72], c="k", lw=lw)
-    ax.plot([1, 99], [66, 66], c="k", lw=lw)
-    ax.text(50, 75, name, ha="center", va="center", fontsize=11, weight="bold")
-    ax.text(50, 69, weapon_label, ha="center", va="center", fontsize=10)
+    def hline(x0, x1, y, lw=LW): ax.plot([x0, x1], [y, y], c="k", lw=lw, solid_capstyle="butt")
+    def vline(x, y0, y1, lw=LW): ax.plot([x, x], [y0, y1], c="k", lw=lw, solid_capstyle="butt")
+    def txt(x, y, s, size=6.5, bold=False, ha="left", color="k"):
+        ax.text(x, y, s, fontsize=size, weight="bold" if bold else "normal", ha=ha, va="center", color=color)
 
-    # conditions line
-    ax.text(3, 63.5, f"TGT ELEV {inp.tgt_elev:,.0f}' / {r['temp_c']:.0f}°C", fontsize=4.6, va="center")
-    ax.text(97, 63.5, "ALT: MSL (AGL)", fontsize=4.6, va="center", ha="right")
+    # frame, title rows
+    L, R, T, B = 6, 614, 4, 836
+    for y in (T, 56, 108, 628, B): hline(L, R, y)
+    vline(L, T, B); vline(R, T, B)
+    txt(310, 31, weapon_label, size=15, ha="center")
+    txt(310, 83, name, size=15, ha="center")
 
-    # BASE/PUP
-    base_nm = r["base_dist"] / NM
-    ax.text(48, 60.5, "BASE/PUP:", fontsize=4.6, ha="right", va="center")
-    ax.text(49, 60.5, f"{base_nm:.1f}NM", fontsize=4.6, va="center")
+    # sled geometry (fixed drawing; numbers carry the information)
+    base_y, trk_y, rel_y, abt_y = 160, 291, 421, 551
+    bx0, bx1 = 108, 183
+    def wire_x(y): return 183 + (437 - 183) * (y - base_y) / (abt_y - base_y)
+    ax.plot([bx1, wire_x(abt_y)], [base_y, abt_y], c="k", lw=1.6)
+    hline(bx0, bx1, base_y, 1.6)
+    hline(wire_x(trk_y), wire_x(trk_y) + 75, trk_y, 1.6)
+    hline(wire_x(rel_y), wire_x(rel_y) + 75, rel_y, 1.6)
+    hline(wire_x(abt_y), wire_x(abt_y) + 75, abt_y, 1.6)
 
-    # the Z: base (top-left) -> track -> release (bottom-right)
-    bx, by = 13, 55            # base label position
-    tx, ty = 40, 50.5          # track
-    rx, ry = 60, 30            # release
-    ax.plot([3, 26], [52.5, 52.5], c="k", lw=1.2)          # base line
-    ax.plot([27, 51], [47.5, 47.5], c="k", lw=1.2)         # track line
-    ax.plot([25, 55], [55, 26], c="k", lw=1.2)             # dive wire
-    ax.plot([50, 70], [26.5, 26.5], c="k", lw=1.2)         # release line
-    ax.text(bx, by, k(r["base_msl"]), fontsize=13, weight="bold", ha="center", va="bottom")
-    ax.text(bx, 50.5, f"({k(r['base'])})  {base_nm:.1f}", fontsize=4.6, ha="center", va="top")
-    ax.text(27.5, 54.5, f"{inp.base_kias:.0f}", fontsize=5.5, va="center")
-    ax.text(tx, ty, k(r["trk_msl"]), fontsize=13, weight="bold", ha="center", va="bottom")
-    ax.text(tx, 46.5, f"({k(r['trk'])})  {inp.trk_kias:.0f}", fontsize=4.6, ha="center", va="top")
-    ax.text(rx, 27.5, k(r["rel_msl"]), fontsize=13, weight="bold", ha="center", va="bottom")
-    ax.text(rx, 25.5, f"({k(r['rel_agl'])})", fontsize=4.6, ha="center", va="top")
-    ax.text(72, 28.5, f"{inp.rel_kias:.0f}", fontsize=5.5, va="center")
+    big = 9.5
+    txt(148, base_y - 15, k(r["base_msl"]), big, True, "center")
+    txt(148, base_y + 12, f"{r['base_dist'] / NM:.1f}", 6, True, "center")
+    txt(197, base_y - 12, f"{inp.base_kias:.0f}   KTS", 6.5)
+    xt = wire_x(trk_y) + 37
+    txt(xt, trk_y - 15, k(r["trk_msl"]), big, True, "center")
+    xr = wire_x(rel_y) + 37
+    txt(xr, rel_y - 15, k(r["rel_msl"]), big, True, "center", color="red" if r.get("rel_below_abort") else "k")
+    txt(xr + 54, rel_y - 12, f"{inp.rel_kias:.0f}   KTS", 6.5)
+    xa = wire_x(abt_y) + 37
+    txt(xa, abt_y - 15, k(r["abort_msl"]), big, True, "center")
+    txt(xa + 4, abt_y + 13, r["abort_reason"], 6, True, "center")
 
-    # RT / UP boxes
-    for y, lab in ((49, "RT"), (40, "UP")):
-        ax.text(83.5, y + 4, lab, fontsize=5.5, ha="right", va="center")
-        ax.add_patch(Rectangle((85, y), 13, 8.5, **box))
-
-    # left column values
-    ax.text(3, 40, "AOD:", fontsize=5); ax.text(13, 40, f"{r['aod'] / 1000:.1f}", fontsize=6.5, weight="bold")
-    ax.text(5, 31, "IHP:", fontsize=5); ax.text(13, 31, f"{r['ihp']:.0f}", fontsize=6.5, weight="bold")
-    ax.text(5, 22, "IAA:", fontsize=5); ax.text(13, 22, f"{r['iaa']:.0f}", fontsize=6.5, weight="bold")
-    ax.text(3, 14.5, "SEM:", fontsize=5); ax.text(13, 14.5, r["sem"], fontsize=6.5, weight="bold")
-    ax.text(70, 14, "MALT:", fontsize=4.6); ax.text(97, 14, f"{inp.min_alt:.0f}", fontsize=4.6, ha="right")
+    # left column
+    txt(112, 252, "AOD:", 6.5); txt(166, 252, f"{r['aod'] / 1000:.1f}", 6.5, True)
+    txt(112, 356, "IHP:", 6.5); txt(171, 356, f"{r['ihp']:.0f}", 6.5, True)
+    txt(112, 461, "IAA:", 6.5); txt(171, 461, f"{r['iaa']:.1f}", 6.5, True)
+    txt(112, 564, "RTSE:", 6.5); txt(166, 564, SEM_LABEL.get(r["sem"], r["sem"]), 6.5, True)
+    txt(305, 591, f"{inp.tgt_elev:.0f}", 7, True, "right"); txt(318, 591, "FT", 6.5)
     if r.get("sem_warning"):
-        ax.text(50, 19, "SEM CHECK: " + r["sem_warning"], fontsize=3.6, ha="center", color="red")
+        txt(310, 612, "SEM: " + r["sem_warning"], 4.2, ha="center", color="red")
+    elif r.get("rel_below_abort"):
+        txt(310, 612, "RELEASE IS BELOW ABORT ALTITUDE", 5, True, "center", color="red")
 
     # bottom table
-    y0, rh = 1, 4.2
-    rows = [("DTOF:", f"{r['dtof']:.1f}", "", "FUZ:", fuze),
-            ("Qty/Int:", f"{inp.qty}", f"{inp.spacing_ft:.0f}" if inp.qty > 1 else "", "H/T:", f"{r['ht']:.1f}"),
-            ("Mils/IPP:", f"{r['mils']:.0f}", f"{r['ipp']:.0f}", "XW:", f"{r['xw']:.1f}")]
+    rows_y = [628, 685, 736, 787, 836]
+    for y in rows_y[1:-1]: hline(L, R, y)
+    for x in (108, 355, 455): vline(x, 628, B)
+    xw = f"{r['xw_ft']:.0f}" if xw_units == "ft" else f"{r['xw']:.1f}"
+    rows = [("MTOF:", f"{r['mtof']:.1f}", "", "MIN ALT:", f"{inp.min_alt:.0f}"),
+            ("DTOF:", f"{r['dtof']:.1f}", "", "FUZE:", fuze),
+            ("QTY/INT:", f"{inp.qty}", f"{inp.spacing_ft:.0f}" if inp.qty > 1 else "", "H/T:", f"{r['ht']:.1f}"),
+            ("MILS/IPP:", f"{r['mils']:.0f}", f"{r['ipp']:.0f}", "XW:", xw)]
     for i, (a, b, c, d, e) in enumerate(rows):
-        y = y0 + rh * (len(rows) - 1 - i)
-        ax.plot([1, 99], [y + rh, y + rh], c="k", lw=lw)
-        ax.text(2, y + rh / 2, a, fontsize=5, va="center")
-        ax.text(38 if c else 47, y + rh / 2, b, fontsize=5, va="center", ha="center")
-        if c:
-            ax.text(56, y + rh / 2, c, fontsize=5, va="center", ha="center")
-        ax.text(70, y + rh / 2, d, fontsize=5, va="center")
-        ax.text(97, y + rh / 2, e, fontsize=5, va="center", ha="right")
-    ax.plot([68, 68], [1, 1 + rh * 3], c="k", lw=lw)
-    ax.plot([84, 84], [1, 1 + rh * 3], c="k", lw=lw)
+        yc = (rows_y[i] + rows_y[i + 1]) / 2
+        txt(20, yc, a, 6.5)
+        txt(180, yc, b, 6.5, True, "center")
+        if c: txt(270, yc, c, 6.5, True, "center")
+        txt(371, yc, d, 6.5)
+        txt(532, yc, e, 6.5, True, "center")
 
     fig.savefig(path, dpi=dpi, facecolor="white")
     plt.close(fig)
@@ -97,6 +94,9 @@ if __name__ == "__main__":
     from engine import Aircraft, SledInput, mk82_ld, solve_sled
     ac = Aircraft(aoa_bias=20, aoa_scale=0.8)
     w = mk82_ld(v_eject_fps=10)
-    inp = SledInput(w, 30, 3200, 350, 310, 275, 2, 70, tgt_elev=1500, temp_c=20)
+    # same inputs as the DAPS v0.942 example card: 82 45DB2, 3,369 ft target, release alt from the DAPS rule
+    inp = SledInput(w, 45, None, 325, 310, 215, 2, 75, tgt_elev=3369)
     r = solve_sled(inp, ac)
-    print(render_sled("82_30DB2.png", "82 30DB2", "MK-82LD", r, inp))
+    from dataclasses import replace
+    inp = replace(inp, rel_agl=r["rel_agl"])
+    print(render_sled("samples/82_45DB2.png", "82 45DB2", "MK-82", r, inp))
