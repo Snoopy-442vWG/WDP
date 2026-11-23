@@ -201,16 +201,16 @@ def default_release_agl(abort_agl, dive):
 
 # ---------------------------------------------------------------- DSMS profile name
 def dsms_name(weapon_prefix, dive_deg, delivery, qty, night=False):
-    """8-character DSMS profile name (76 vFS / 442 vWG convention):
-    chars 1-3 weapon type (e.g. "82 ", "A  ", "84 ", "B2 "), an "N" in the third character for night deliveries,
-    chars 4-5 dive angle, chars 6-7 delivery type (DB, LD, HD, HA ...), char 8 quantity.
-    e.g. dsms_name("82", 30, "DB", 6) -> "82 30DB6"."""
-    w = (weapon_prefix + "   ")[:3]
-    if night:
-        w = w[:2] + "N"
-    name = f"{w}{int(round(dive_deg)):02d}{delivery[:2]:<2}{qty}"
-    if len(name) != 8:
-        raise ValueError(f"DSMS name must be 8 characters: {name!r}")
+    """DSMS profile name (76 vFS / 442 vWG convention, max 8 characters):
+    weapon type, then ONE space (or "N" for night) when the weapon code is shorter than 3 characters,
+    then dive angle (2 digits), delivery type (DB, LD, HD, HA ...), quantity.
+    e.g. ("82", 30, "DB", 6) -> "82 30DB6", ("A", 20, "HD", 2) -> "A 20HD2", ("87E", 20, "HD", 2) -> "87E20HD2",
+    night ("82", 30, "DB", 6, night=True) -> "82N30DB6"."""
+    w = weapon_prefix.strip()
+    sep = "" if len(w) >= 3 else ("N" if night else " ")
+    name = f"{w}{sep}{int(round(dive_deg)):02d}{delivery[:2]}{qty}"
+    if len(name) > 8:
+        raise ValueError(f"DSMS name longer than 8 characters: {name!r}")
     return name
 
 # ---------------------------------------------------------------- safe escape
