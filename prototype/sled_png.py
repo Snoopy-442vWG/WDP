@@ -1,6 +1,7 @@
 """Render a Z-sled card as a PNG in the DAPS card layout.
 
-Altitudes are MSL in thousands of feet (what the altimeter reads); the target elevation is printed under the sled.
+Altitudes are in thousands of feet, AGL by default (76 vFS / 442 vWG definition: base, track, release and abort are
+heights above the target) or MSL (DAPS) with alt_ref="MSL". The target elevation is printed under the sled.
 """
 import matplotlib
 matplotlib.use("Agg")
@@ -15,7 +16,7 @@ def k(ft):
     return f"{ft / 1000:.1f}"
 
 
-def render_sled(path, name, weapon_label, r, inp, fuze="NT", xw_units="ft", dpi=200):
+def render_sled(path, name, weapon_label, r, inp, fuze="N/T", xw_units="ft", alt_ref="AGL", dpi=200):
     """r = solve_sled() result, inp = the SledInput used. xw_units: 'ft' (ft/kt, DAPS) or 'mils' (mils/kt, CWDS)."""
     fig = plt.figure(figsize=(W_PX / dpi, H_PX / dpi), dpi=dpi)
     ax = fig.add_axes([0, 0, 1, 1])
@@ -45,24 +46,26 @@ def render_sled(path, name, weapon_label, r, inp, fuze="NT", xw_units="ft", dpi=
     hline(wire_x(abt_y), wire_x(abt_y) + 75, abt_y, 1.6)
 
     big = 9.5
-    txt(148, base_y - 15, k(r["base_msl"]), big, True, "center")
+    e = inp.tgt_elev if alt_ref == "MSL" else 0.0
+    alt = lambda agl: k(agl + e)
+    txt(148, base_y - 15, alt(r["base"]), big, True, "center")
     txt(148, base_y + 12, f"{r['base_dist'] / NM:.1f}", 6, True, "center")
     txt(197, base_y - 12, f"{inp.base_kias:.0f}   KTS", 6.5)
     xt = wire_x(trk_y) + 37
-    txt(xt, trk_y - 15, k(r["trk_msl"]), big, True, "center")
+    txt(xt, trk_y - 15, alt(r["trk"]), big, True, "center")
     xr = wire_x(rel_y) + 37
-    txt(xr, rel_y - 15, k(r["rel_msl"]), big, True, "center", color="red" if r.get("rel_below_abort") else "k")
+    txt(xr, rel_y - 15, alt(r["rel_agl"]), big, True, "center", color="red" if r.get("rel_below_abort") else "k")
     txt(xr + 54, rel_y - 12, f"{inp.rel_kias:.0f}   KTS", 6.5)
     xa = wire_x(abt_y) + 37
-    txt(xa, abt_y - 15, k(r["abort_msl"]), big, True, "center")
+    txt(xa, abt_y - 15, alt(r["abort_agl"]), big, True, "center")
     txt(xa + 4, abt_y + 13, r["abort_reason"], 6, True, "center")
 
     # left column
     txt(112, 252, "AOD:", 6.5); txt(166, 252, f"{r['aod'] / 1000:.1f}", 6.5, True)
     txt(112, 356, "IHP:", 6.5); txt(171, 356, f"{r['ihp']:.0f}", 6.5, True)
     txt(112, 461, "IAA:", 6.5); txt(171, 461, f"{r['iaa']:.1f}", 6.5, True)
-    txt(112, 564, "RTSE:", 6.5); txt(166, 564, SEM_LABEL.get(r["sem"], r["sem"]), 6.5, True)
-    txt(305, 591, f"{inp.tgt_elev:.0f}", 7, True, "right"); txt(318, 591, "FT", 6.5)
+    txt(112, 564, "SEM:", 6.5); txt(160, 564, SEM_LABEL.get(r["sem"], r["sem"]), 6.5, True)
+    txt(305, 591, f"{inp.tgt_elev:.0f}", 7, True, "right"); txt(318, 591, f"FT TGT ELEV  ·  ALT {alt_ref}", 6.5)
     if r.get("sem_warning"):
         txt(310, 612, "SEM: " + r["sem_warning"], 4.2, ha="center", color="red")
     elif r.get("rel_below_abort"):
@@ -99,4 +102,7 @@ if __name__ == "__main__":
     r = solve_sled(inp, ac)
     from dataclasses import replace
     inp = replace(inp, rel_agl=r["rel_agl"])
-    print(render_sled("samples/82_45DB2.png", "82 45DB2", "MK-82", r, inp))
+    from engine import dsms_name
+    name = dsms_name("82", 45, "DB", 2)
+    print(render_sled(f"samples/{name.replace(' ', '_')}_AGL.png", name, "MK-82LD", r, inp))
+    print(render_sled(f"samples/{name.replace(' ', '_')}_MSL.png", name, "MK-82LD", r, inp, alt_ref="MSL"))

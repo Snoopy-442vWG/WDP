@@ -199,6 +199,20 @@ def default_release_agl(abort_agl, dive):
     """DAPS rule: release 10 ft per degree of dive above the abort altitude, rounded up to 100 ft."""
     return math.ceil((abort_agl + 10 * dive) / 100) * 100
 
+# ---------------------------------------------------------------- DSMS profile name
+def dsms_name(weapon_prefix, dive_deg, delivery, qty, night=False):
+    """8-character DSMS profile name (76 vFS / 442 vWG convention):
+    chars 1-3 weapon type (e.g. "82 ", "A  ", "84 ", "B2 "), an "N" in the third character for night deliveries,
+    chars 4-5 dive angle, chars 6-7 delivery type (DB, LD, HD, HA ...), char 8 quantity.
+    e.g. dsms_name("82", 30, "DB", 6) -> "82 30DB6"."""
+    w = (weapon_prefix + "   ")[:3]
+    if night:
+        w = w[:2] + "N"
+    name = f"{w}{int(round(dive_deg)):02d}{delivery[:2]:<2}{qty}"
+    if len(name) != 8:
+        raise ValueError(f"DSMS name must be 8 characters: {name!r}")
+    return name
+
 # ---------------------------------------------------------------- safe escape
 # DSMS escape maneuver codes (JAFDTC EscapeManeuvers): CLB is the jet's name for
 # the 3-3 Climbing (CLM) SEM.
