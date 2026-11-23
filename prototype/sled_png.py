@@ -96,7 +96,7 @@ def render_sled(path, name, weapon_label, r, inp, fuze="N/T", xw_units="mils", a
 if __name__ == "__main__":
     from engine import Aircraft, SledInput, mk82_ld, solve_sled
     ac = Aircraft(aoa_bias=20, aoa_scale=0.8)
-    w = mk82_ld(v_eject_fps=10)
+    w = mk82_ld()   # DCS-calibrated
     # same inputs as the DAPS v0.942 example card: 82 45DB2, 3,369 ft target, release alt from the DAPS rule
     inp = SledInput(w, 45, None, 325, 310, 215, 2, 75, tgt_elev=3369)
     r = solve_sled(inp, ac)

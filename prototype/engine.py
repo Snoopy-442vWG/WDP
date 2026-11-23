@@ -73,8 +73,17 @@ class Weapon:
 MK82_CD = [(0.0, 0.20), (0.6, 0.20), (0.75, 0.21), (0.85, 0.26), (0.90, 0.33),
            (0.95, 0.45), (1.00, 0.55), (1.10, 0.60), (1.50, 0.52)]
 
+# DCS calibration (2026-11-21 ETAR recording, 12 Mk-82 / BDU-50LD drops, DCS 2.9.31):
+#   drag scale 0.67 -> range RMS 4 ft, TOF RMS 0.01 s when started from each bomb's own release velocity;
+#   ejection velocity (body-down) measured 0-8 ft/s, mean 4.2 ft/s.
+DCS_MK82_CD_SCALE = 0.67
+DCS_MK82_EJECT_FPS = 4.0
+
 def mk82_ld(**kw):
-    # mass/caliber from DCS (dcs-lua-datamine weapons/bombs/Mk_82.lua)
+    """Mk-82 LD / BDU-50LD with DCS-calibrated defaults (mass/caliber from DCS dcs-lua-datamine Mk_82.lua).
+    For the real-world CWDS comparison pass cd_scale=1.0, v_eject_fps=10."""
+    kw.setdefault("cd_scale", DCS_MK82_CD_SCALE)
+    kw.setdefault("v_eject_fps", DCS_MK82_EJECT_FPS)
     return Weapon("MK-82LD", 228.0, 0.273, MK82_CD, **kw)
 
 # ---------------------------------------------------------------- trajectory

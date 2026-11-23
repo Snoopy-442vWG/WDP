@@ -1,6 +1,6 @@
 from engine import *
 ac = Aircraft(aoa_bias=20, aoa_scale=0.8)
-w = mk82_ld(v_eject_fps=10)
+w = mk82_ld()
 print("82 45DB2 (5,000 ft AGL release, 350 KIAS, 2 @ 70 ft) at different target elevations")
 print(f"{'Elev':>6} {'Temp':>5} {'BASE MSL':>8} {'TRK MSL':>7} {'REL MSL':>7} {'MALT MSL':>8} {'TAS':>4} {'DTOF':>5} {'MILS':>4} {'AOD':>5} {'BR':>5} {'IHP':>4} {'IPP':>3} {'XW':>4} SEM")
 for elev, t in [(0, None), (1500, 20), (3369, None), (5000, None), (5000, 30)]:
